@@ -179,9 +179,10 @@ pub mod dispatch_impl {
             config: Config<'static>,
             tx_buf: &'static mut [u8],
             max_usb_frame_size: usize,
+            poststation: bool,
         ) -> (UsbDevice<'static, D>, WireTxImpl<M, D>, WireRxImpl<D>) {
             let (builder, wtx, wrx) =
-                self.init_without_build(driver, config, tx_buf, max_usb_frame_size);
+                self.init_without_build(driver, config, tx_buf, max_usb_frame_size, poststation);
             let usb = builder.build();
             (usb, wtx, wrx)
         }
@@ -194,6 +195,7 @@ pub mod dispatch_impl {
             config: Config<'static>,
             tx_buf: &'static mut [u8],
             max_usb_frame_size: usize,
+            poststation: bool,
         ) -> (Builder<'static, D>, WireTxImpl<M, D>, WireRxImpl<D>) {
             assert!(max_usb_frame_size.is_power_of_two());
             let bufs = self.bufs_usb.take();
@@ -206,6 +208,12 @@ pub mod dispatch_impl {
                 &mut bufs.msos_descriptor,
                 &mut bufs.control_buf,
             );
+
+            if poststation {
+                // Register a poststation-compatible string handler
+                let hdlr = super::HDLR.take();
+                builder.handler(hdlr);
+            }
 
             // Add the Microsoft OS Descriptor (MSOS/MOD) descriptor.
             // We tell Windows that this entire device is compatible with the "WINUSB" feature,
@@ -224,7 +232,13 @@ pub mod dispatch_impl {
             // that uses our custom handler.
             let mut function = builder.function(0xFF, 0, 0);
             let mut interface = function.interface();
-            let mut alt = interface.alt_setting(0xFF, 0, 0, None);
+            let mut alt = if poststation {
+                let stindx = interface.string();
+                super::STINDX.store(stindx.0, core::sync::atomic::Ordering::Relaxed);
+                interface.alt_setting(0xFF, 0xCA, 0x7D, Some(stindx))
+            } else {
+                interface.alt_setting(0xFF, 0, 0, None)
+            };
             let ep_out = alt.endpoint_bulk_out(None, max_usb_frame_size as u16);
             let ep_in = alt.endpoint_bulk_in(None, max_usb_frame_size as u16);
             drop(function);
