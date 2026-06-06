@@ -63,7 +63,9 @@ pub(crate) mod embassy_shared {
         Sp: WireSpawn<Error = SpawnError, Info = Spawner>,
     {
         let info = sp.info();
-        info.spawn(tok)
+        info.spawn(tok);
+
+        Ok(())
     }
 }
 
